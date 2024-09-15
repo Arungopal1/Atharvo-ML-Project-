@@ -1,0 +1,97 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+import matplotlib.pyplot as plt
+
+# Load the dataset
+data = pd.read_csv('/content/drive/MyDrive/ML LAB/Bengaluru_House_Data.csv')
+
+# Data preprocessing
+data.dropna(inplace=True)  # Drop any rows with missing values
+
+# Convert categorical variables into numerical values using Label Encoding
+label_encoder = LabelEncoder()
+data['location'] = label_encoder.fit_transform(data['location'])
+
+# Preprocess 'total_sqft' column
+def preprocess_total_sqft(sqft):
+    if '-' in sqft:
+        values = sqft.split('-')
+        return np.mean([float(val) for val in values])
+    try:
+        return float(sqft)
+    except:
+        return np.nan
+
+data['total_sqft'] = data['total_sqft'].apply(preprocess_total_sqft)
+data.dropna(subset=['total_sqft'], inplace=True)  # Drop rows with invalid 'total_sqft' values
+
+# Data preprocessing for 'size' column
+data['size'] = data['size'].apply(lambda x: int(x.split(' ')[0]) if isinstance(x, str) else np.nan)
+data.dropna(subset=['size'], inplace=True)  # Drop rows with invalid 'size' values
+
+# Split dataset into features and target variable
+X = data[['total_sqft', 'location', 'size', 'bath']]
+y = data['price']
+
+# Standardize features
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Split dataset into training set and test set
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.3, random_state=42)
+
+# Model training
+model = KNeighborsRegressor()
+model.fit(X_train, y_train)
+
+# Predict the response for test dataset
+y_pred = model.predict(X_test)
+
+# Model evaluation
+evaluation_results = {}
+
+def evaluate_model(y_true, y_pred):
+    mse = mean_squared_error(y_true, y_pred)
+    mae = mean_absolute_error(y_true, y_pred)
+    r2 = r2_score(y_true, y_pred)
+    return mse, mae, r2
+
+mse, mae, r2 = evaluate_model(y_test, y_pred)
+evaluation_results['Test Set'] = {'Mean Squared Error': mse, 'Mean Absolute Error': mae, 'R^2 Score': r2}
+
+# Cross-validation
+cv_scores = cross_val_score(model, X_scaled, y, cv=5, scoring='neg_mean_squared_error')
+cv_mse = -cv_scores
+cv_mae = cross_val_score(model, X_scaled, y, cv=5, scoring='neg_mean_absolute_error')
+cv_r2 = cross_val_score(model, X_scaled, y, cv=5, scoring='r2')
+
+evaluation_results['Cross-Validation'] = {'Mean Squared Error': np.mean(cv_mse),
+                                          'Mean Absolute Error': np.mean(cv_mae),
+                                          'R^2 Score': np.mean(cv_r2)}
+
+# Hyperparameter tuning
+parameters = {'n_neighbors': range(1, 21)}
+grid_search = GridSearchCV(model, parameters, cv=5, scoring='neg_mean_squared_error')
+grid_search.fit(X_scaled, y)
+best_params = grid_search.best_params_
+evaluation_results['Hyperparameter Tuning'] = {'Best Parameters': best_params}
+
+# Plotting the predicted prices against actual prices
+plt.figure(figsize=(10, 6))
+plt.scatter(y_test, y_pred)
+plt.plot([min(y_test), max(y_test)], [min(y_test), max(y_test)], 'k--', lw=3)
+plt.xlabel("Actual Price")
+plt.ylabel("Predicted Price")
+plt.title("Actual Price vs Predicted Price")
+plt.show()
+
+# Display evaluation results
+print("Evaluation Results:")
+for key, value in evaluation_results.items():
+    print(key)
+    for metric, score in value.items():
+        print(f"{metric}: {score}")
